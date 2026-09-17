@@ -1,25 +1,23 @@
 from __future__ import annotations
 
-import ctypes
-from ctypes import wintypes
 import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
 
 from .models import AutomationCoordinates, AutomationItem
-from solsrng_core.antiafk.backends.windows import WindowsInputBackend
-from solsrng_core.antiafk.backends.base import InputBackendError
+from .windows_background import (
+    WindowsBackgroundInput,
+    WindowsTargetWindow,
+)
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 class AutomationError(RuntimeError):
     pass
 
-@dataclass
-class WindowInfo:
-    window_id: int
-    title: str
+
+WindowInfo = WindowsTargetWindow
+
 
 @dataclass
 class AutomationStatus:
@@ -33,15 +31,14 @@ class AutomationStatus:
     auth_error: str = ""
     game_window: str = ""
     previous_window: str = ""
+    input_mode: str = "BACKGROUND"
+
 
 class AutomationController:
-    """Windows implementation of the existing SolsRNGCore automation interface."""
+    """Windows automation controller using window-directed background input."""
 
     RETRIES = 3
-    FOCUS_DELAY = 0.35
-    POST_FOCUS_DELAY = 0.50
-    RESTORE_DELAY = 0.20
-    CLICK_SETTLE = 0.15
+    CLICK_SETTLE = 0.12
     TYPE_SETTLE = 0.20
 
     def __init__(
@@ -52,7 +49,7 @@ class AutomationController:
         on_status: Callable[[AutomationStatus], None] | None = None,
         priority_gate=None,
     ):
-        self.backend = "windows"
+        self.backend = "windows_background"
         self.game_window_pattern = (game_window_pattern or "Roblox").strip()
         self.on_status = on_status
         self.priority_gate = priority_gate
@@ -63,7 +60,7 @@ class AutomationController:
         self._auth_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._run_lock = threading.Lock()
-        self._input = WindowsInputBackend()
+        self._input = WindowsBackgroundInput(self.game_window_pattern)
 
     def _emit_status(self):
         if self.on_status:
@@ -78,6 +75,11 @@ class AutomationController:
             self.status.current_item = current_item
         self._emit_status()
 
+    def _sync_target_pattern(self):
+        self._input.window_pattern = (
+            self.game_window_pattern.strip() or "Roblox"
+        )
+
     def authenticate_async(self):
         if self.status.authenticated or self.status.authenticating:
             return
@@ -85,20 +87,25 @@ class AutomationController:
         self._emit_status()
         self._auth_thread = threading.Thread(
             target=self.authenticate,
-            name="solsrng-windows-auth",
+            name="solsrng-windows-target-detect",
             daemon=True,
         )
         self._auth_thread.start()
 
     def authenticate(self) -> bool:
         try:
-            self._input.press_key("space")
+            self._sync_target_pattern()
+            target = self._input.find_window()
             self.status.authenticated = True
             self.status.auth_error = ""
+            self.status.game_window = target.display_name
+            self.status.message = "TARGET DETECTED • BACKGROUND READY"
+            self.log_status(target)
             return True
         except Exception as exc:
             self.status.authenticated = False
             self.status.auth_error = str(exc)
+            self.status.game_window = ""
             return False
         finally:
             self.status.authenticating = False
@@ -107,95 +114,28 @@ class AutomationController:
     def retry_authentication(self):
         self.status.authenticated = False
         self.status.auth_error = ""
+        self.status.game_window = ""
         self.authenticate_async()
 
-    @staticmethod
-    def _window_title(hwnd: int) -> str:
-        length = user32.GetWindowTextLengthW(hwnd)
-        if length <= 0:
-            return ""
-        buf = ctypes.create_unicode_buffer(length + 1)
-        user32.GetWindowTextW(hwnd, buf, length + 1)
-        return buf.value.strip()
-
-    def _list_windows(self) -> list[WindowInfo]:
-        windows: list[WindowInfo] = []
-        enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)  # type: ignore[name-defined]
-
-        def callback(hwnd, _lparam):
-            if user32.IsWindowVisible(hwnd):
-                title = self._window_title(int(hwnd))
-                if title:
-                    windows.append(WindowInfo(int(hwnd), title))
-            return True
-
-        callback_ref = enum_proc_type(callback)
-        user32.EnumWindows(callback_ref, 0)
-        return windows
-
-    def find_game_window(self) -> WindowInfo:
-        pattern = self.game_window_pattern.lower()
-        exact = []
-        partial = []
-        for window in self._list_windows():
-            title = window.title.lower()
-            if title == pattern:
-                exact.append(window)
-            elif pattern in title:
-                partial.append(window)
-        if exact:
-            return exact[0]
-        if partial:
-            return partial[0]
-        raise AutomationError(
-            f'Could not find a Windows window matching "{self.game_window_pattern}".'
+    def log_status(self, window: WindowsTargetWindow):
+        self._set_message(
+            f"TARGET READY • {window.title} • {window.executable}",
         )
 
-    @staticmethod
-    def _activate_window(window: WindowInfo):
-        if not user32.SetForegroundWindow(window.window_id):
-            raise AutomationError(
-                f'Could not focus "{window.title}" (Win32 error {ctypes.get_last_error()}).'
-            )
-        time.sleep(0.35)
-
-    def _get_active_window(self) -> WindowInfo:
-        hwnd = int(user32.GetForegroundWindow())
-        if not hwnd:
-            raise AutomationError("Could not determine the active window.")
-        return WindowInfo(hwnd, self._window_title(hwnd))
-
-    def _restore_window(self, window: WindowInfo):
-        self._activate_window(window)
-
-    def _validate_item(self, item: AutomationItem):
-        if not item.search_text.strip():
-            raise AutomationError(f"{item.name}: search text is empty.")
-        missing = item.coordinates.missing()
-        if missing:
-            raise AutomationError(
-                f"{item.name}: missing coordinates: {', '.join(missing)}"
-            )
-        if item.cooldown_seconds < 0:
-            raise AutomationError(f"{item.name}: cooldown cannot be negative.")
-
-    def _validate_items(self):
-        enabled = [i for i in self.items if i.enabled]
-        if not enabled:
-            raise AutomationError("No enabled automation items.")
-        for item in enabled:
-            self._validate_item(item)
+    def find_game_window(self) -> WindowInfo:
+        self._sync_target_pattern()
+        return self._input.find_window()
 
     def start(self):
         if self.status.running:
             return
         if not self.status.authenticated:
-            raise AutomationError("Input Access is not authenticated.")
+            raise AutomationError("Detect the Roblox target window first.")
         self._validate_items()
         self._stop_event.clear()
         self.status.running = True
         self.status.testing = False
-        self.status.message = "RUNNING"
+        self.status.message = "RUNNING • BACKGROUND"
         self.status.current_item = ""
         self.status.next_run_timestamp = None
         self._emit_status()
@@ -212,12 +152,12 @@ class AutomationController:
         if self.status.running:
             raise AutomationError("Stop Automation before running a test.")
         if not self.status.authenticated:
-            raise AutomationError("Input Access is not authenticated.")
+            raise AutomationError("Detect the Roblox target window first.")
         self._validate_item(item)
         if not self._run_lock.acquire(blocking=False):
             raise AutomationError("Automation is already busy.")
         self.status.testing = True
-        self.status.message = f"TESTING • {item.name}"
+        self.status.message = f"TESTING • BACKGROUND • {item.name}"
         self.status.current_item = item.name
         self._emit_status()
         try:
@@ -269,16 +209,35 @@ class AutomationController:
         self.status.next_run_timestamp = None
         self._emit_status()
 
+    def _validate_item(self, item: AutomationItem):
+        if not item.search_text.strip():
+            raise AutomationError(f"{item.name}: search text is empty.")
+        missing = self.coordinates.missing()
+        if missing:
+            raise AutomationError(
+                f"{item.name}: missing coordinates: {', '.join(missing)}"
+            )
+        if item.cooldown_seconds < 0:
+            raise AutomationError(f"{item.name}: cooldown cannot be negative.")
+
+    def _validate_items(self):
+        enabled = [i for i in self.items if i.enabled]
+        if not enabled:
+            raise AutomationError("No enabled automation items.")
+        for item in enabled:
+            self._validate_item(item)
+
+    def _target_or_refresh(self, current: WindowInfo | None = None) -> WindowInfo:
+        if current is not None and self._input.is_alive(current):
+            return current
+        return self.find_game_window()
+
     def _run_item(self, item: AutomationItem):
-        previous = self._get_active_window()
-        self.status.previous_window = previous.title
-        self._emit_status()
-
         game = self.find_game_window()
-        self.status.game_window = game.title
+        self.status.game_window = game.display_name
+        self.status.previous_window = ""
         self._emit_status()
 
-        self._set_message(f"FOCUSING • {game.title}", current_item=item.name)
         coords = self.coordinates
         if coords.missing():
             raise AutomationError(
@@ -286,98 +245,96 @@ class AutomationController:
                 + ", ".join(coords.missing())
             )
 
-        self._activate_window(game)
-        time.sleep(self.POST_FOCUS_DELAY)
+        self._set_message(
+            f"BACKGROUND RUN • {game.display_name}",
+            current_item=item.name,
+        )
 
         try:
-            sequence = [
-                (coords.inventory, "Inventory"),
-                (coords.items, "Items"),
-                (coords.search_bar, "Search Bar"),
-                (coords.first_slot, "First Slot"),
-                (coords.quantity, "Quantity"),
-                (coords.use_button, "Use Button"),
-                (coords.close_inventory, "Close Inventory"),
-            ]
+            game = self._target_or_refresh(game)
+            self._click(game, coords.inventory, "Inventory", item)
+            time.sleep(item.click_delay_seconds)
 
-            self._set_message(
-                f"OPENING INVENTORY • {item.name}",
-                current_item=item.name,
-            )
+            game = self._target_or_refresh(game)
+            self._click(game, coords.items, "Items", item)
+            time.sleep(item.click_delay_seconds)
 
-            self._click(coords.inventory, "Inventory", item)
+            game = self._target_or_refresh(game)
+            self._click(game, coords.search_bar, "Search Bar", item)
             time.sleep(item.click_delay_seconds)
-            self._click(coords.items, "Items", item)
-            time.sleep(item.click_delay_seconds)
-            self._click(coords.search_bar, "Search Bar", item)
-            time.sleep(item.click_delay_seconds)
-            self._ctrl_a()
+
+            self._ctrl_a(game)
             time.sleep(0.05)
-            self._type_text(item.search_text)
+            self._type_text(game, item.search_text)
             time.sleep(max(item.click_delay_seconds, self.TYPE_SETTLE))
-            self._click(coords.first_slot, "First Slot", item)
+
+            game = self._target_or_refresh(game)
+            self._click(game, coords.first_slot, "First Slot", item)
             time.sleep(item.click_delay_seconds)
-            self._click(coords.quantity, "Quantity", item)
+
+            game = self._target_or_refresh(game)
+            self._click(game, coords.quantity, "Quantity", item)
             time.sleep(0.10)
-            self._ctrl_a()
+            self._ctrl_a(game)
             time.sleep(0.05)
-            self._type_text("1")
+            self._type_text(game, "1")
             time.sleep(max(item.click_delay_seconds, self.TYPE_SETTLE))
-            self._click(coords.use_button, "Use Button", item)
-            time.sleep(item.post_use_delay_seconds)
-            self._click(coords.close_inventory, "Close Inventory", item)
 
-            self._set_message(f"COMPLETE • {item.name}", current_item=item.name)
-        finally:
+            game = self._target_or_refresh(game)
+            self._click(game, coords.use_button, "Use Button", item)
+            time.sleep(item.post_use_delay_seconds)
+
+            game = self._target_or_refresh(game)
+            self._click(game, coords.close_inventory, "Close Inventory", item)
+
             self._set_message(
-                f"RESTORING • {previous.title}",
+                f"COMPLETE • BACKGROUND • {item.name}",
                 current_item=item.name,
             )
-            time.sleep(self.RESTORE_DELAY)
-            try:
-                self._restore_window(previous)
-            finally:
-                self.status.game_window = ""
-                self.status.previous_window = ""
-                self._emit_status()
+        finally:
+            self.status.game_window = ""
+            self.status.previous_window = ""
+            self._emit_status()
 
-    def _click(self, coordinate, label: str, item: AutomationItem):
+    def _click(
+        self,
+        game: WindowInfo,
+        coordinate,
+        label: str,
+        item: AutomationItem,
+    ):
         if coordinate is None:
             raise AutomationError(
                 f"{item.name}: {label} coordinate is missing."
             )
         x, y = int(coordinate[0]), int(coordinate[1])
-        user32.SetCursorPos(x, y)
-        time.sleep(self.CLICK_SETTLE)
-        # mouse left button
-        MOUSEEVENTF_LEFTDOWN = 0x0002
-        MOUSEEVENTF_LEFTUP = 0x0004
-        user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
-        user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        game = self._target_or_refresh(game)
+        try:
+            self._input.click_screen(game, x, y)
+        except Exception as exc:
+            raise AutomationError(
+                f"{item.name}: background click failed at {label}: {exc}"
+            ) from exc
         self._set_message(
-            f"CLICK • {label} • {item.name}",
+            f"BACKGROUND CLICK • {label} • {item.name}",
             current_item=item.name,
         )
+        time.sleep(self.CLICK_SETTLE)
 
-    def _type_text(self, text: str):
-        # Use clipboard paste for reliable Unicode on Windows.
-        import subprocess
-        encoded = str(text).replace("'", "''")
-        ps = (
-            "Set-Clipboard -Value "
-            + "'" + encoded + "'"
-        )
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", ps],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
+    def _type_text(self, game: WindowInfo, text: str):
+        game = self._target_or_refresh(game)
+        try:
+            self._input.type_text(game, text)
+        except Exception as exc:
             raise AutomationError(
-                result.stderr.strip() or "Unable to write clipboard."
-            )
-        self._input.hotkey("ctrl", "v")
+                f"Background text input failed: {exc}"
+            ) from exc
 
-    def _ctrl_a(self):
-        self._input.hotkey("ctrl", "a")
+    def _ctrl_a(self, game: WindowInfo):
+        game = self._target_or_refresh(game)
+        try:
+            self._input.hotkey(game, "ctrl", "a")
+        except Exception as exc:
+            raise AutomationError(
+                f"Background Ctrl+A failed: {exc}"
+            ) from exc
