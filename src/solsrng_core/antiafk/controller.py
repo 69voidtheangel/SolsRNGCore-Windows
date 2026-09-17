@@ -1,48 +1,44 @@
 from __future__ import annotations
 
-import ctypes
 import threading
-import time
 from typing import Callable
 
-from .backends.windows import WindowsInputBackend
-from .backends.base import InputBackendError
+from solsrng_core.automation.windows_background import (
+    WindowsBackgroundInput,
+    WindowsTargetWindow,
+)
+
 
 class WindowError(RuntimeError):
-    """Raised when Windows Anti-AFK cannot perform an input action."""
+    """Raised when Windows Anti-AFK cannot target the game window."""
 
-user32 = ctypes.WinDLL("user32", use_last_error=True)
 
 class AntiAFKController:
-    """
-    Native Windows Anti-AFK controller.
-
-    Methods:
-        space   - press Space at the configured interval.
-        alt_tab - switch to the next window, press Space, then switch back.
-
-    This implementation intentionally avoids external automation tools.
-    """
+    """Native Windows Anti-AFK using window-directed background input."""
 
     SPACE_MODE = "space"
     ALT_TAB_MODE = "alt_tab"
+    BACKGROUND_MODE = "background"
 
     def __init__(
         self,
         interval_seconds: float = 120.0,
         method: str = SPACE_MODE,
         backend_preference: str = "auto",
+        game_window_pattern: str = "Roblox",
         log: Callable[[str], None] | None = None,
         priority_gate=None,
     ):
         self.interval_seconds = max(1.0, float(interval_seconds))
         self.method = self._normalize_method(method)
         self.backend_preference = self._normalize_backend(backend_preference)
+        self.game_window_pattern = (game_window_pattern or "Roblox").strip()
         self.log = log or (lambda _: None)
         self.priority_gate = priority_gate
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self._backend = WindowsInputBackend()
+        self._backend = WindowsBackgroundInput(self.game_window_pattern)
+        self._last_window: WindowsTargetWindow | None = None
 
     @classmethod
     def _normalize_method(cls, method: str) -> str:
@@ -50,10 +46,11 @@ class AntiAFKController:
         aliases = {
             "space": cls.SPACE_MODE,
             "space mode": cls.SPACE_MODE,
-            "alt+tab": cls.ALT_TAB_MODE,
-            "alt-tab": cls.ALT_TAB_MODE,
-            "alt tab": cls.ALT_TAB_MODE,
-            "alt_tab": cls.ALT_TAB_MODE,
+            "alt+tab": cls.BACKGROUND_MODE,
+            "alt-tab": cls.BACKGROUND_MODE,
+            "alt tab": cls.BACKGROUND_MODE,
+            "alt_tab": cls.BACKGROUND_MODE,
+            "background": cls.BACKGROUND_MODE,
         }
         if value not in aliases:
             raise WindowError(f"Unsupported Anti-AFK method: {method}")
@@ -61,59 +58,31 @@ class AntiAFKController:
 
     @staticmethod
     def _normalize_backend(backend: str) -> str:
-        value = str(backend).strip().lower()
-        if value not in {"auto", "windows"}:
-            raise WindowError(f"Unsupported Windows input backend: {backend}")
-        return "windows"
+        del backend
+        return "windows_background"
 
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    @staticmethod
-    def _foreground_window() -> int:
-        return int(user32.GetForegroundWindow())
-
-    @staticmethod
-    def _set_foreground(hwnd: int) -> None:
-        if not hwnd or not user32.IsWindow(hwnd):
-            raise WindowError("Previous window is no longer available.")
-        if not user32.SetForegroundWindow(hwnd):
-            error = ctypes.get_last_error()
-            raise WindowError(f"SetForegroundWindow failed: {error}")
-
-    def _press_space(self) -> None:
-        try:
-            self._backend.press_key("space")
-        except InputBackendError as exc:
-            raise WindowError(str(exc)) from exc
-
-    def _alt_tab_once(self) -> None:
-        try:
-            self._backend.hotkey("alt", "tab")
-        except InputBackendError as exc:
-            raise WindowError(str(exc)) from exc
+    def _find_target(self) -> WindowsTargetWindow:
+        self._backend.window_pattern = (
+            self.game_window_pattern.strip() or "Roblox"
+        )
+        target = self._backend.find_window()
+        self._last_window = target
+        return target
 
     def _tick(self) -> None:
-        if self.method == self.SPACE_MODE:
-            self._press_space()
-            self.log("Anti-AFK: Space pressed")
-            return
-
-        previous = self._foreground_window()
-        self._alt_tab_once()
-        time.sleep(0.20)
         try:
-            self._press_space()
-            self.log("Anti-AFK: Alt+Tab → Space")
-        finally:
-            time.sleep(0.20)
-            try:
-                self._set_foreground(previous)
-                self.log("Anti-AFK: previous window restored")
-            except WindowError as exc:
-                self.log(f"Anti-AFK restore failed: {exc}")
-                raise
+            target = self._find_target()
+            self._backend.background_space(target)
+            self.log(
+                "Anti-AFK: background Space → "
+                f"{target.title} [{target.executable}, PID {target.process_id}]"
+            )
+        except Exception as exc:
+            raise WindowError(str(exc)) from exc
 
     def start(self) -> None:
         if self.running:
@@ -127,7 +96,7 @@ class AntiAFKController:
         )
         self._thread.start()
         self.log(
-            f"Anti-AFK started (method={self.method}, backend=windows)"
+            "Anti-AFK started (Windows background window-directed input)"
         )
 
     def stop(self, restore: bool = True) -> None:
@@ -150,12 +119,21 @@ class AntiAFKController:
                     if self.priority_gate is not None:
                         self.priority_gate.leave()
             except Exception as exc:
-                self.log(f"Anti-AFK error: {exc}")
+                self.log(f"Anti-AFK target/input error: {exc}")
             if self._stop.wait(self.interval_seconds):
                 break
 
     def swap_to_game(self) -> None:
-        self.log("Anti-AFK: focus switching is handled automatically.")
+        try:
+            target = self._find_target()
+            self.log(
+                "Anti-AFK target detected without focusing it: "
+                f"{target.display_name}"
+            )
+        except Exception as exc:
+            self.log(f"Anti-AFK target detection failed: {exc}")
 
     def restore_previous_window(self) -> None:
-        self.log("Anti-AFK: previous-window restore is handled automatically.")
+        # There is deliberately nothing to restore: background input never
+        # changes the user's foreground window.
+        self.log("Anti-AFK: no foreground window was changed.")
