@@ -1,25 +1,26 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
 from typing import Callable
 
 from .models import AutomationCoordinates, AutomationItem
-from solsrng_core.antiafk.backends.windows import WindowsInputBackend
+from solsrng_core.antiafk.backends.windows import (
+    WindowsInputBackend,
+    WindowsWindowBackend,
+    WindowInfo,
+)
 from solsrng_core.antiafk.backends.base import InputBackendError
 
 user32 = ctypes.WinDLL("user32", use_last_error=True)
 
+
 class AutomationError(RuntimeError):
     pass
 
-@dataclass
-class WindowInfo:
-    window_id: int
-    title: str
 
 @dataclass
 class AutomationStatus:
@@ -33,16 +34,24 @@ class AutomationStatus:
     auth_error: str = ""
     game_window: str = ""
     previous_window: str = ""
+    background_mode: bool = True
+    input_path: str = "background"
+
 
 class AutomationController:
-    """Windows implementation of the existing SolsRNGCore automation interface."""
+    """Windows-native automation controller.
+
+    The worker is always a daemon thread. Input is attempted against the Roblox
+    window without foregrounding it first. Some games (including certain Roblox
+    input paths) do not consume background Win32 messages, so the controller
+    transparently falls back to a brief foreground SendInput pass and restores
+    the previous window immediately.
+    """
 
     RETRIES = 3
-    FOCUS_DELAY = 0.35
-    POST_FOCUS_DELAY = 0.50
-    RESTORE_DELAY = 0.20
-    CLICK_SETTLE = 0.15
-    TYPE_SETTLE = 0.20
+    CLICK_SETTLE = 0.12
+    TYPE_SETTLE = 0.18
+    RESTORE_DELAY = 0.15
 
     def __init__(
         self,
@@ -52,8 +61,11 @@ class AutomationController:
         on_status: Callable[[AutomationStatus], None] | None = None,
         priority_gate=None,
     ):
-        self.backend = "windows"
-        self.game_window_pattern = (game_window_pattern or "Roblox").strip()
+        del backend
+        self.backend = "windows-native"
+        self.game_window_pattern = (
+            game_window_pattern or "Roblox"
+        ).strip()
         self.on_status = on_status
         self.priority_gate = priority_gate
         self.items: list[AutomationItem] = []
@@ -64,6 +76,9 @@ class AutomationController:
         self._stop_event = threading.Event()
         self._run_lock = threading.Lock()
         self._input = WindowsInputBackend()
+        self._windows = WindowsWindowBackend()
+        self._active_game: WindowInfo | None = None
+        self._foreground_fallback = False
 
     def _emit_status(self):
         if self.on_status:
@@ -72,7 +87,12 @@ class AutomationController:
             except Exception:
                 pass
 
-    def _set_message(self, message: str, *, current_item: str | None = None):
+    def _set_message(
+        self,
+        message: str,
+        *,
+        current_item: str | None = None,
+    ):
         self.status.message = message
         if current_item is not None:
             self.status.current_item = current_item
@@ -92,6 +112,8 @@ class AutomationController:
 
     def authenticate(self) -> bool:
         try:
+            # SendInput is used only for the one-time user authentication
+            # handshake. Runtime automation uses the window-aware backend.
             self._input.press_key("space")
             self.status.authenticated = True
             self.status.auth_error = ""
@@ -109,64 +131,69 @@ class AutomationController:
         self.status.auth_error = ""
         self.authenticate_async()
 
-    @staticmethod
-    def _window_title(hwnd: int) -> str:
-        length = user32.GetWindowTextLengthW(hwnd)
-        if length <= 0:
-            return ""
-        buf = ctypes.create_unicode_buffer(length + 1)
-        user32.GetWindowTextW(hwnd, buf, length + 1)
-        return buf.value.strip()
-
     def _list_windows(self) -> list[WindowInfo]:
-        windows: list[WindowInfo] = []
-        enum_proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)  # type: ignore[name-defined]
-
-        def callback(hwnd, _lparam):
-            if user32.IsWindowVisible(hwnd):
-                title = self._window_title(int(hwnd))
-                if title:
-                    windows.append(WindowInfo(int(hwnd), title))
-            return True
-
-        callback_ref = enum_proc_type(callback)
-        user32.EnumWindows(callback_ref, 0)
-        return windows
+        return self._windows.enumerate_windows()
 
     def find_game_window(self) -> WindowInfo:
-        pattern = self.game_window_pattern.lower()
-        exact = []
-        partial = []
-        for window in self._list_windows():
-            title = window.title.lower()
-            if title == pattern:
-                exact.append(window)
-            elif pattern in title:
-                partial.append(window)
-        if exact:
-            return exact[0]
-        if partial:
-            return partial[0]
-        raise AutomationError(
-            f'Could not find a Windows window matching "{self.game_window_pattern}".'
-        )
+        pattern = self.game_window_pattern.strip()
+        process_candidates = [
+            "RobloxPlayerBeta.exe",
+            "Sober.exe",
+        ]
+
+        last_error: Exception | None = None
+        for process_name in process_candidates:
+            try:
+                return self._windows.find_window(
+                    pattern,
+                    process_name=process_name,
+                )
+            except Exception as exc:
+                last_error = exc
+
+        try:
+            return self._windows.find_window(pattern)
+        except Exception as exc:
+            if last_error is not None:
+                raise AutomationError(str(exc)) from last_error
+            raise AutomationError(str(exc)) from exc
 
     @staticmethod
-    def _activate_window(window: WindowInfo):
-        if not user32.SetForegroundWindow(window.window_id):
-            raise AutomationError(
-                f'Could not focus "{window.title}" (Win32 error {ctypes.get_last_error()}).'
-            )
-        time.sleep(0.35)
-
-    def _get_active_window(self) -> WindowInfo:
+    def _foreground_window() -> WindowInfo:
         hwnd = int(user32.GetForegroundWindow())
         if not hwnd:
             raise AutomationError("Could not determine the active window.")
-        return WindowInfo(hwnd, self._window_title(hwnd))
+        title_length = user32.GetWindowTextLengthW(hwnd)
+        title = ""
+        if title_length > 0:
+            buffer = ctypes.create_unicode_buffer(title_length + 1)
+            user32.GetWindowTextW(hwnd, buffer, title_length + 1)
+            title = buffer.value.strip()
+        return WindowInfo(hwnd, title)
+
+    @staticmethod
+    def _activate_window(window: WindowInfo):
+        if not window.window_id or not user32.IsWindow(window.window_id):
+            raise AutomationError("Target window is no longer available.")
+        if user32.IsIconic(window.window_id):
+            SW_RESTORE = 9
+            user32.ShowWindow(window.window_id, SW_RESTORE)
+        if not user32.SetForegroundWindow(window.window_id):
+            raise AutomationError(
+                f'Could not focus "{window.title}" '
+                f"(Win32 error {ctypes.get_last_error()})."
+            )
+        time.sleep(0.30)
 
     def _restore_window(self, window: WindowInfo):
-        self._activate_window(window)
+        if window.window_id and user32.IsWindow(window.window_id):
+            try:
+                self._activate_window(window)
+            except AutomationError as exc:
+                self._set_message(
+                    f"RESTORE WARNING • {exc}",
+                    current_item=self.status.current_item,
+                )
 
     def _validate_item(self, item: AutomationItem):
         if not item.search_text.strip():
@@ -180,7 +207,7 @@ class AutomationController:
             raise AutomationError(f"{item.name}: cooldown cannot be negative.")
 
     def _validate_items(self):
-        enabled = [i for i in self.items if i.enabled]
+        enabled = [item for item in self.items if item.enabled]
         if not enabled:
             raise AutomationError("No enabled automation items.")
         for item in enabled:
@@ -195,7 +222,8 @@ class AutomationController:
         self._stop_event.clear()
         self.status.running = True
         self.status.testing = False
-        self.status.message = "RUNNING"
+        self.status.message = "RUNNING • BACKGROUND-FIRST"
+        self.status.input_path = "background"
         self.status.current_item = ""
         self.status.next_run_timestamp = None
         self._emit_status()
@@ -247,7 +275,7 @@ class AutomationController:
                 if self.priority_gate is not None:
                     self.priority_gate.enter_automation()
                 try:
-                    for item in [i for i in self.items if i.enabled]:
+                    for item in [item for item in self.items if item.enabled]:
                         if self._stop_event.is_set():
                             break
                         self._run_item(item)
@@ -269,104 +297,95 @@ class AutomationController:
         self.status.next_run_timestamp = None
         self._emit_status()
 
-    def _run_item(self, item: AutomationItem):
-        previous = self._get_active_window()
-        self.status.previous_window = previous.title
-        self._emit_status()
-
-        game = self.find_game_window()
-        self.status.game_window = game.title
-        self._emit_status()
-
-        self._set_message(f"FOCUSING • {game.title}", current_item=item.name)
-        coords = self.coordinates
-        if coords.missing():
-            raise AutomationError(
-                "Shared automation coordinates are incomplete: "
-                + ", ".join(coords.missing())
-            )
-
+    def _enable_foreground_fallback(self, game: WindowInfo):
+        if self._foreground_fallback:
+            return
+        self._set_message(
+            "BACKGROUND INPUT NOT ACCEPTED • USING NATIVE FOCUS FALLBACK",
+            current_item=self.status.current_item,
+        )
         self._activate_window(game)
-        time.sleep(self.POST_FOCUS_DELAY)
+        self._foreground_fallback = True
+        self.status.input_path = "focus-fallback"
+        self._emit_status()
 
+    def _background_or_fallback(self, operation, game: WindowInfo):
+        if self._foreground_fallback:
+            return False
         try:
-            sequence = [
-                (coords.inventory, "Inventory"),
-                (coords.items, "Items"),
-                (coords.search_bar, "Search Bar"),
-                (coords.first_slot, "First Slot"),
-                (coords.quantity, "Quantity"),
-                (coords.use_button, "Use Button"),
-                (coords.close_inventory, "Close Inventory"),
-            ]
+            if operation():
+                return True
+        except (InputBackendError, OSError):
+            pass
+        self._enable_foreground_fallback(game)
+        return False
 
-            self._set_message(
-                f"OPENING INVENTORY • {item.name}",
-                current_item=item.name,
-            )
-
-            self._click(coords.inventory, "Inventory", item)
-            time.sleep(item.click_delay_seconds)
-            self._click(coords.items, "Items", item)
-            time.sleep(item.click_delay_seconds)
-            self._click(coords.search_bar, "Search Bar", item)
-            time.sleep(item.click_delay_seconds)
-            self._ctrl_a()
-            time.sleep(0.05)
-            self._type_text(item.search_text)
-            time.sleep(max(item.click_delay_seconds, self.TYPE_SETTLE))
-            self._click(coords.first_slot, "First Slot", item)
-            time.sleep(item.click_delay_seconds)
-            self._click(coords.quantity, "Quantity", item)
-            time.sleep(0.10)
-            self._ctrl_a()
-            time.sleep(0.05)
-            self._type_text("1")
-            time.sleep(max(item.click_delay_seconds, self.TYPE_SETTLE))
-            self._click(coords.use_button, "Use Button", item)
-            time.sleep(item.post_use_delay_seconds)
-            self._click(coords.close_inventory, "Close Inventory", item)
-
-            self._set_message(f"COMPLETE • {item.name}", current_item=item.name)
-        finally:
-            self._set_message(
-                f"RESTORING • {previous.title}",
-                current_item=item.name,
-            )
-            time.sleep(self.RESTORE_DELAY)
-            try:
-                self._restore_window(previous)
-            finally:
-                self.status.game_window = ""
-                self.status.previous_window = ""
-                self._emit_status()
-
-    def _click(self, coordinate, label: str, item: AutomationItem):
+    def _click(
+        self,
+        coordinate: tuple[int, int] | None,
+        label: str,
+        item: AutomationItem,
+        game: WindowInfo,
+    ):
         if coordinate is None:
             raise AutomationError(
                 f"{item.name}: {label} coordinate is missing."
             )
+
         x, y = int(coordinate[0]), int(coordinate[1])
+        if not self._foreground_fallback:
+            if self._background_or_fallback(
+                lambda: self._input.background_click(
+                    game.window_id,
+                    x,
+                    y,
+                ),
+                game,
+            ):
+                self._set_message(
+                    f"BACKGROUND CLICK • {label} • {item.name}",
+                    current_item=item.name,
+                )
+                time.sleep(self.CLICK_SETTLE)
+                return
+
         user32.SetCursorPos(x, y)
         time.sleep(self.CLICK_SETTLE)
-        # mouse left button
         MOUSEEVENTF_LEFTDOWN = 0x0002
         MOUSEEVENTF_LEFTUP = 0x0004
         user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
         self._set_message(
-            f"CLICK • {label} • {item.name}",
+            f"FOCUS CLICK • {label} • {item.name}",
             current_item=item.name,
         )
 
-    def _type_text(self, text: str):
-        # Use clipboard paste for reliable Unicode on Windows.
-        import subprocess
+    def _ctrl_a(self, game: WindowInfo):
+        if not self._foreground_fallback:
+            if self._background_or_fallback(
+                lambda: self._input.background_hotkey(
+                    game.window_id,
+                    "ctrl",
+                    "a",
+                ),
+                game,
+            ):
+                return
+        self._input.hotkey("ctrl", "a")
+
+    def _type_text(self, text: str, game: WindowInfo):
+        if not self._foreground_fallback:
+            if self._background_or_fallback(
+                lambda: self._input.background_text(
+                    game.window_id,
+                    text,
+                ),
+                game,
+            ):
+                return
+
         encoded = str(text).replace("'", "''")
-        ps = (
-            "Set-Clipboard -Value "
-            + "'" + encoded + "'"
-        )
+        ps = "Set-Clipboard -Value '" + encoded + "'"
         result = subprocess.run(
             ["powershell", "-NoProfile", "-Command", ps],
             capture_output=True,
@@ -379,5 +398,72 @@ class AutomationController:
             )
         self._input.hotkey("ctrl", "v")
 
-    def _ctrl_a(self):
-        self._input.hotkey("ctrl", "a")
+    def _run_item(self, item: AutomationItem):
+        previous = self._foreground_window()
+        self.status.previous_window = previous.title
+        self._foreground_fallback = False
+        self.status.input_path = "background"
+        self._emit_status()
+
+        game = self.find_game_window()
+        self._active_game = game
+        self.status.game_window = game.title
+        self._emit_status()
+
+        self._set_message(
+            f"FOUND • {game.title} • {game.process_name or 'unknown process'}",
+            current_item=item.name,
+        )
+
+        coords = self.coordinates
+        if not coords.complete():
+            raise AutomationError(
+                "Shared automation coordinates are incomplete: "
+                + ", ".join(coords.missing())
+            )
+
+        try:
+            self._set_message(
+                f"BACKGROUND INPUT • {item.name}",
+                current_item=item.name,
+            )
+            self._click(coords.inventory, "Inventory", item, game)
+            time.sleep(item.click_delay_seconds)
+            self._click(coords.items, "Items", item, game)
+            time.sleep(item.click_delay_seconds)
+            self._click(coords.search_bar, "Search Bar", item, game)
+            time.sleep(item.click_delay_seconds)
+            self._ctrl_a(game)
+            time.sleep(0.05)
+            self._type_text(item.search_text, game)
+            time.sleep(max(item.click_delay_seconds, self.TYPE_SETTLE))
+            self._click(coords.first_slot, "First Slot", item, game)
+            time.sleep(item.click_delay_seconds)
+            self._click(coords.quantity, "Quantity", item, game)
+            time.sleep(0.10)
+            self._ctrl_a(game)
+            time.sleep(0.05)
+            self._type_text("1", game)
+            time.sleep(max(item.click_delay_seconds, self.TYPE_SETTLE))
+            self._click(coords.use_button, "Use Button", item, game)
+            time.sleep(item.post_use_delay_seconds)
+            self._click(coords.close_inventory, "Close Inventory", item, game)
+
+            self._set_message(
+                f"COMPLETE • {item.name}",
+                current_item=item.name,
+            )
+        finally:
+            if self._foreground_fallback:
+                self._set_message(
+                    f"RESTORING • {previous.title}",
+                    current_item=item.name,
+                )
+                time.sleep(self.RESTORE_DELAY)
+                self._restore_window(previous)
+            else:
+                self.status.input_path = "background"
+            self.status.game_window = ""
+            self.status.previous_window = ""
+            self._active_game = None
+            self._emit_status()
