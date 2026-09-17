@@ -35,6 +35,13 @@ jobs:
           & "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" installer.iss
           if (!(Test-Path 'installer/output/SolsRNGCore-Setup.exe')) { throw 'SolsRNGCore-Setup.exe was not produced.' }
 
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolsRNGCore-Setup
+          path: installer/output/SolsRNGCore-Setup.exe
+          if-no-files-found: error
+
       - name: Replace repository with installer only
         shell: pwsh
         run: |
