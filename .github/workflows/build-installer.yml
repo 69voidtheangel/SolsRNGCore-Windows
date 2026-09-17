@@ -1,4 +1,4 @@
-name: Build and publish SolsRNGCore Windows installer
+name: Build and publish SolsRNGCore Windows artifacts
 
 on:
   push:
@@ -26,17 +26,24 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "PyInstaller>=6,<7"
 
-      - name: Windows-only import smoke test
+      - name: Windows-only background input smoke test
         shell: pwsh
         run: |
           $env:PYTHONPATH = "$PWD\src"
-          python -c "from solsrng_core.antiafk.backends import WindowsInputBackend; import sys; assert sys.platform == 'win32'; assert 'solsrng_core.antiafk.backends.xdotool' not in sys.modules; assert 'solsrng_core.antiafk.backends.ydotool' not in sys.modules"
+          python -c "from solsrng_core.antiafk.backends import WindowsInputBackend; from solsrng_core.automation.windows_background import WindowsBackgroundInput; import sys; assert sys.platform == 'win32'; assert 'solsrng_core.antiafk.backends.xdotool' not in sys.modules; assert 'solsrng_core.antiafk.backends.ydotool' not in sys.modules; assert WindowsBackgroundInput is not None; assert WindowsInputBackend is not None"
 
       - name: Build single-file application EXE
         shell: pwsh
         run: |
           python -m PyInstaller --clean --noconfirm solsrngcore_windows.spec
           if (!(Test-Path 'dist/SolsRNGCore.exe')) { throw 'SolsRNGCore.exe was not produced.' }
+
+      - name: Verify application EXE
+        shell: pwsh
+        run: |
+          $exe = Get-Item 'dist/SolsRNGCore.exe'
+          if ($exe.Length -lt 1000000) { throw "SolsRNGCore.exe is unexpectedly small: $($exe.Length) bytes" }
+          Write-Host "Built $($exe.FullName) ($($exe.Length) bytes)"
 
       - name: Build installer EXE
         shell: pwsh
@@ -49,6 +56,13 @@ jobs:
           if (!(Test-Path $issc)) { throw 'Inno Setup compiler (ISCC.exe) was not found.' }
           & $issc installer.iss
           if (!(Test-Path 'installer/output/SolsRNGCore-Setup.exe')) { throw 'SolsRNGCore-Setup.exe was not produced.' }
+
+      - name: Upload normal application EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolsRNGCore-EXE
+          path: dist/SolsRNGCore.exe
+          if-no-files-found: error
 
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
@@ -66,5 +80,5 @@ jobs:
           git rm -r --ignore-unmatch -- .
           Get-ChildItem -Force | Where-Object { $_.Name -ne '.git' -and $_.Name -ne 'SolsRNGCore-Setup.exe' } | Remove-Item -Recurse -Force
           git add 'SolsRNGCore-Setup.exe'
-          git commit -m 'Publish SolsRNGCore Windows installer'
+          git commit -m 'Publish updated SolsRNGCore Windows installer'
           git push origin HEAD:main
