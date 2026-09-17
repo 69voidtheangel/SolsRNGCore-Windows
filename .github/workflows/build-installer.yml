@@ -29,6 +29,7 @@ jobs:
       - name: Windows-only import smoke test
         shell: pwsh
         run: |
+          $env:PYTHONPATH = "$PWD\src"
           python -c "from solsrng_core.antiafk.backends import WindowsInputBackend; import sys; assert sys.platform == 'win32'; assert 'solsrng_core.antiafk.backends.xdotool' not in sys.modules; assert 'solsrng_core.antiafk.backends.ydotool' not in sys.modules"
 
       - name: Build single-file application EXE
