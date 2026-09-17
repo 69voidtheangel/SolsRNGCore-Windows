@@ -8,6 +8,13 @@ LIBRARY = ROOT / "library"
 
 hiddenimports = collect_submodules("solsrng_core")
 
+# Keep this a real Windows build: Linux-only automation/session modules are excluded.
+excludes = [
+    "solsrng_core.platform.linux",
+    "solsrng_core.antiafk.backends.xdotool",
+    "solsrng_core.antiafk.backends.ydotool",
+]
+
 a = Analysis(
     [str(ROOT / "main.py")],
     pathex=[str(SRC)],
@@ -20,11 +27,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[
-        "solsrng_core.platform.linux",
-        "solsrng_core.antiafk.backends.xdotool",
-        "solsrng_core.antiafk.backends.ydotool",
-    ],
+    excludes=excludes,
     noarchive=False,
 )
 
@@ -35,7 +38,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="SolsRNGCore-Windows",
+    name="SolsRNGCore",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

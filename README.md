@@ -1,20 +1,12 @@
-# SolsRNGCore-Windows
+# SolsRNGCore Windows
 
-Windows-native SolsRNGCore packaged as a single executable plus an optional installer.
+This source tree is built by GitHub Actions on a real Windows runner.
 
-## Output
+The workflow produces:
 
-- `dist\SolsRNGCore-Windows.exe` — the main **single-file EXE**. Python, PySide6, requests, application code, assets, and the bundled biome library are packaged into it.
-- `installer\output\SolsRNGCore-Windows-Setup.exe` — a normal Windows installer that installs that EXE, creates Start Menu/uninstall entries, and can optionally create a desktop shortcut.
+- `SolsRNGCore.exe` — the PyInstaller single-file application, with Python, PySide6, requests, application code, assets, and the biome library bundled.
+- `SolsRNGCore-Setup.exe` — an Inno Setup installer containing the application EXE.
 
-## Dependencies
+After a successful build, the workflow replaces the `main` branch contents with **only `SolsRNGCore-Setup.exe`**.
 
-The end-user does **not** need Python, pip, PySide6, requests, or the source tree. Those runtime dependencies are bundled into the main EXE by PyInstaller.
-
-The Windows build machine needs:
-
-- Python 3.10+
-- PyInstaller 6.x
-- Inno Setup 6 (only for building the installer)
-
-Run `build_windows.bat` on Windows. It installs the Python build dependencies, builds the one-file EXE, then builds the installer.
+No local Windows installation is required to build it: push this project to GitHub and the Windows runner performs the build.

@@ -1,7 +1,0 @@
-Metadata-Version: 2.4
-Name: solsrng-core
-Version: 0.1.1
-Summary: Sol's RNG Discord webhook + Anti-AFK GUI core
-Requires-Python: >=3.10
-Requires-Dist: PySide6<7,>=6.8
-Requires-Dist: requests<3,>=2.32

@@ -1,21 +1,20 @@
 #define MyAppName "SolsRNGCore"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "VoidTheAngel"
-#define MyAppExeName "SolsRNGCore-Windows.exe"
+#define MyAppExeName "SolsRNGCore.exe"
 
 [Setup]
-AppId={{6D8E4C5F-0F12-4D2A-9B7B-2E9A8B8A1D41}
+AppId={{8E0F3F4F-3E3E-4E9E-9D6F-2F1F1B1A9C41}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={autopf}\SolsRNGCore
+DefaultDirName={localappdata}\Programs\SolsRNGCore
 DefaultGroupName={#MyAppName}
 OutputDir=installer\output
-OutputBaseFilename=SolsRNGCore-Windows-Setup
+OutputBaseFilename=SolsRNGCore-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
-ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=lowest
 UninstallDisplayName={#MyAppName}
 

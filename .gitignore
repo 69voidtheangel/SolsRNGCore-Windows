@@ -1,11 +1,6 @@
-.venv/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
 build/
 dist/
-*.spec
-.env
-.vscode/
-.idea/
+installer/output/
+*.spec.bak
