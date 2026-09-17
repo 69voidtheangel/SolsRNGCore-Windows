@@ -42,8 +42,11 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          $issc = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}) -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-          if (-not $issc) { throw 'Inno Setup compiler (ISCC.exe) was not found.' }
+          $issc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $issc)) {
+            $issc = "${env:ProgramFiles}\Inno Setup 6\ISCC.exe"
+          }
+          if (!(Test-Path $issc)) { throw 'Inno Setup compiler (ISCC.exe) was not found.' }
           & $issc installer.iss
           if (!(Test-Path 'installer/output/SolsRNGCore-Setup.exe')) { throw 'SolsRNGCore-Setup.exe was not produced.' }
 
