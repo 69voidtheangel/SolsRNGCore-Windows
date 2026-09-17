@@ -82,3 +82,5 @@ jobs:
           git add 'SolsRNGCore-Setup.exe'
           git commit -m 'Publish updated SolsRNGCore Windows installer'
           git push origin HEAD:main
+
+# Rebuild trigger: reliable Windows input backend.
