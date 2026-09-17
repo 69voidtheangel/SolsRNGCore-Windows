@@ -20,11 +20,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Build single-file application EXE
+      - name: Install build dependencies
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt "PyInstaller>=6,<7"
+
+      - name: Windows-only import smoke test
+        shell: pwsh
+        run: |
+          python -c "from solsrng_core.antiafk.backends import WindowsInputBackend; import sys; assert sys.platform == 'win32'; assert 'solsrng_core.antiafk.backends.xdotool' not in sys.modules; assert 'solsrng_core.antiafk.backends.ydotool' not in sys.modules"
+
+      - name: Build single-file application EXE
+        shell: pwsh
+        run: |
           python -m PyInstaller --clean --noconfirm solsrngcore_windows.spec
           if (!(Test-Path 'dist/SolsRNGCore.exe')) { throw 'SolsRNGCore.exe was not produced.' }
 
@@ -32,7 +41,9 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          & "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe" installer.iss
+          $issc = Get-ChildItem -Path @($env:ProgramFiles, ${env:ProgramFiles(x86)}) -Filter ISCC.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $issc) { throw 'Inno Setup compiler (ISCC.exe) was not found.' }
+          & $issc installer.iss
           if (!(Test-Path 'installer/output/SolsRNGCore-Setup.exe')) { throw 'SolsRNGCore-Setup.exe was not produced.' }
 
       - name: Upload installer artifact
