@@ -30,13 +30,20 @@ jobs:
         shell: pwsh
         run: |
           $env:PYTHONPATH = "$PWD\src"
-          python -c "from solsrng_core.antiafk.backends import WindowsInputBackend; import sys; assert sys.platform == 'win32'; assert 'solsrng_core.antiafk.backends.xdotool' not in sys.modules; assert 'solsrng_core.antiafk.backends.ydotool' not in sys.modules"
+          python -c "from solsrng_core.antiafk.backends import WindowsInputBackend, WindowsWindowBackend, WindowInfo; from solsrng_core.automation.controller import AutomationController; import sys; assert sys.platform == 'win32'; assert 'solsrng_core.antiafk.backends.xdotool' not in sys.modules; assert 'solsrng_core.antiafk.backends.ydotool' not in sys.modules; assert callable(WindowsWindowBackend.enumerate_windows)"
 
       - name: Build single-file application EXE
         shell: pwsh
         run: |
           python -m PyInstaller --clean --noconfirm solsrngcore_windows.spec
           if (!(Test-Path 'dist/SolsRNGCore.exe')) { throw 'SolsRNGCore.exe was not produced.' }
+
+      - name: Upload main EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SolsRNGCore
+          path: dist/SolsRNGCore.exe
+          if-no-files-found: error
 
       - name: Build installer EXE
         shell: pwsh
