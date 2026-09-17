@@ -1,6 +1,0 @@
-__pycache__/
-*.pyc
-build/
-dist/
-installer/output/
-*.spec.bak
