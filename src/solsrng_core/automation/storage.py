@@ -8,15 +8,23 @@ from pathlib import Path
 from .models import AutomationCoordinates, AutomationItem
 
 
-CONFIG_DIR = (
-    Path(
+if os.name == "nt":
+    CONFIG_DIR = Path(
         os.environ.get(
-            "XDG_CONFIG_HOME",
-            Path.home() / ".config",
+            "LOCALAPPDATA",
+            Path.home() / "AppData" / "Local",
         )
+    ) / "SolsRNGCore"
+else:
+    CONFIG_DIR = (
+        Path(
+            os.environ.get(
+                "XDG_CONFIG_HOME",
+                Path.home() / ".config",
+            )
+        )
+        / "solsrng"
     )
-    / "solsrng"
-)
 
 CONFIG_PATH = CONFIG_DIR / "automation.json"
 
@@ -24,8 +32,8 @@ CONFIG_PATH = CONFIG_DIR / "automation.json"
 @dataclass
 class AutomationSettings:
     enabled: bool = False
-    backend: str = "auto"
-    game_window_pattern: str = "Sober"
+    backend: str = "windows_background"
+    game_window_pattern: str = "Roblox"
 
     # ONE coordinate set shared by every automation item.
     coordinates: AutomationCoordinates = field(
@@ -38,80 +46,48 @@ class AutomationSettings:
 
     def _sync_item_coordinates(self) -> None:
         shared = self.coordinates.copy()
-
         for item in self.items:
             item.coordinates = shared.copy()
 
     def to_dict(self) -> dict:
         self._sync_item_coordinates()
-
         return {
             "enabled": self.enabled,
             "backend": self.backend,
             "game_window_pattern": self.game_window_pattern,
             "coordinates": self.coordinates.to_dict(),
-            "items": [
-                item.to_dict()
-                for item in self.items
-            ],
+            "items": [item.to_dict() for item in self.items],
         }
 
     @classmethod
-    def from_dict(
-        cls,
-        data: dict,
-    ) -> "AutomationSettings":
+    def from_dict(cls, data: dict) -> "AutomationSettings":
         if not isinstance(data, dict):
             data = {}
 
-        raw_items = data.get(
-            "items",
-            [],
-        )
-
+        raw_items = data.get("items", [])
         items: list[AutomationItem] = []
-
         if isinstance(raw_items, list):
             for raw in raw_items:
                 if isinstance(raw, dict):
                     try:
-                        items.append(
-                            AutomationItem.from_dict(
-                                raw
-                            )
-                        )
+                        items.append(AutomationItem.from_dict(raw))
                     except Exception:
                         pass
 
-        backend = str(
-            data.get(
-                "backend",
-                "auto",
-            )
-        ).strip().lower()
-
-        if backend not in {
-            "auto",
-            "ydotool",
-            "xdotool",
-        }:
+        # Legacy Linux selections are accepted for migration but Windows
+        # always resolves them to the native background backend.
+        backend = str(data.get("backend", "windows_background")).strip().lower()
+        if os.name == "nt":
+            backend = "windows_background"
+        elif backend not in {"auto", "ydotool", "xdotool"}:
             backend = "auto"
 
-        pattern = str(
-            data.get(
-                "game_window_pattern",
-                "Sober",
-            )
-        ).strip()
-
+        pattern = str(data.get("game_window_pattern", "Roblox")).strip()
         if not pattern:
-            pattern = "Sober"
+            pattern = "Roblox"
 
         coordinates = AutomationCoordinates.from_dict(
-            data.get(
-                "coordinates",
-                {},
-            )
+            data.get("coordinates", {})
         )
 
         # Migrate old per-item coordinates.
@@ -122,28 +98,21 @@ class AutomationSettings:
                     break
 
         settings = cls(
-            enabled=bool(
-                data.get(
-                    "enabled",
-                    False,
-                )
-            ),
+            enabled=bool(data.get("enabled", False)),
             backend=backend,
             game_window_pattern=pattern,
             coordinates=coordinates,
             items=items,
         )
-
         settings._sync_item_coordinates()
-
         return settings
 
 
 def default_settings() -> AutomationSettings:
     return AutomationSettings(
         enabled=False,
-        backend="auto",
-        game_window_pattern="Sober",
+        backend="windows_background" if os.name == "nt" else "auto",
+        game_window_pattern="Roblox" if os.name == "nt" else "Sober",
         coordinates=AutomationCoordinates(),
         items=[
             AutomationItem(
@@ -167,51 +136,29 @@ def load_settings() -> AutomationSettings:
         return settings
 
     try:
-        data = json.loads(
-            CONFIG_PATH.read_text(
-                encoding="utf-8"
-            )
-        )
-
+        data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     except Exception:
         settings = default_settings()
         save_settings(settings)
         return settings
 
-    settings = AutomationSettings.from_dict(
-        data
-    )
+    settings = AutomationSettings.from_dict(data)
 
-    # Older automation.json files may have no items.
-    # Keep existing settings, but restore the useful defaults.
     if not settings.items:
         defaults = default_settings()
-
         settings.items = defaults.items
-
         if not settings.game_window_pattern:
-            settings.game_window_pattern = (
-                defaults.game_window_pattern
-            )
+            settings.game_window_pattern = defaults.game_window_pattern
 
     settings._sync_item_coordinates()
     save_settings(settings)
-
     return settings
 
 
-def save_settings(
-    settings: AutomationSettings,
-):
-    CONFIG_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+def save_settings(settings: AutomationSettings):
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-    temporary = CONFIG_PATH.with_suffix(
-        ".json.tmp"
-    )
-
+    temporary = CONFIG_PATH.with_suffix(".json.tmp")
     temporary.write_text(
         json.dumps(
             settings.to_dict(),
@@ -220,7 +167,4 @@ def save_settings(
         ),
         encoding="utf-8",
     )
-
-    temporary.replace(
-        CONFIG_PATH
-    )
+    temporary.replace(CONFIG_PATH)
