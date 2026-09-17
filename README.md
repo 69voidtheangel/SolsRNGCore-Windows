@@ -1,43 +1,20 @@
-# SolsRNGCore Windows
+# SolsRNGCore-Windows
 
-Windows-native port of **SolsRNGCore**.
+Windows-native SolsRNGCore packaged as a single executable plus an optional installer.
 
-This repository keeps the shared Sol's RNG core, Discord notification system, profile persistence, GUI, automation model, and diagnostics, while replacing the Linux-specific input/window layer with native Windows APIs.
+## Output
 
-## Windows-specific changes
+- `dist\SolsRNGCore-Windows.exe` — the main **single-file EXE**. Python, PySide6, requests, application code, assets, and the bundled biome library are packaged into it.
+- `installer\output\SolsRNGCore-Windows-Setup.exe` — a normal Windows installer that installs that EXE, creates Start Menu/uninstall entries, and can optionally create a desktop shortcut.
 
-- Native `user32.SendInput` keyboard input
-- Native Win32 window discovery/focus via `EnumWindows`, `GetWindowTextW`, and `SetForegroundWindow`
-- Native cursor/click injection via `SetCursorPos` + mouse events
-- No `ydotool`, `xdotool`, `wdotool`, or Linux session dependencies
-- `%LOCALAPPDATA%\SolsRNGCore\core.json` configuration
-- Roblox log discovery under `%LOCALAPPDATA%\Roblox\logs` / `%APPDATA%\Roblox\logs`
-- `SOLSRNG_ROBLOX_LOG_DIR` can override log discovery
+## Dependencies
 
-## Important
+The end-user does **not** need Python, pip, PySide6, requests, or the source tree. Those runtime dependencies are bundled into the main EXE by PyInstaller.
 
-The Windows port is designed as a platform port, not a claim that every Roblox log source is identical to Sober. The log watcher preserves the existing RPC parser and makes the log directory configurable so the correct Windows log source can be tested without hard-coding an unsupported path.
+The Windows build machine needs:
 
-## Run
+- Python 3.10+
+- PyInstaller 6.x
+- Inno Setup 6 (only for building the installer)
 
-```powershell
-py -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python main.py
-```
-
-## Build an executable
-
-PyInstaller is intentionally optional:
-
-```powershell
-python -m pip install pyinstaller
-pyinstaller --noconfirm --windowed --name SolsRNGCore main.py
-```
-
-## Notes
-
-- Roblox window automation uses absolute screen coordinates, matching the existing SolsRNGCore automation design.
-- Run display scaling at a predictable value when recording coordinates.
-- The first Windows implementation should be validated against the exact Roblox/Bloxstrap log format on the target machine.
+Run `build_windows.bat` on Windows. It installs the Python build dependencies, builds the one-file EXE, then builds the installer.
