@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import threading
 import time
 from dataclasses import dataclass
@@ -125,6 +126,23 @@ class AutomationController:
     def find_game_window(self) -> WindowInfo:
         self._sync_target_pattern()
         return self._input.find_window()
+
+    # Compatibility helpers kept for the existing UI. They deliberately do
+    # not change foreground focus anymore.
+    def _get_active_window(self) -> WindowInfo:
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.GetForegroundWindow.restype = ctypes.c_void_p
+        hwnd = int(user32.GetForegroundWindow() or 0)
+        if not hwnd:
+            raise AutomationError("Could not determine the active window.")
+        title = self._input._title(hwnd)
+        process_id, executable = self._input._process_name(hwnd)
+        return WindowInfo(hwnd, title or "Untitled window", process_id, executable)
+
+    @staticmethod
+    def _activate_window(window: WindowInfo):
+        if not WindowsBackgroundInput.is_alive(window):
+            raise AutomationError("Target window is no longer available.")
 
     def start(self):
         if self.status.running:
