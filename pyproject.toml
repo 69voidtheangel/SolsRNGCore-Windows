@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "solsrng-core-windows"
+version = "0.1.0"
+description = "Windows-native Sol's RNG Discord webhook + Anti-AFK + automation core"
+requires-python = ">=3.10"
+dependencies = [
+    "PySide6>=6.8,<7",
+    "requests>=2.32,<3",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

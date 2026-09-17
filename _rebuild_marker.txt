@@ -1,1 +1,0 @@
-Windows background-input rebuild source restored temporarily for CI packaging. This file will be removed by the publish step.
