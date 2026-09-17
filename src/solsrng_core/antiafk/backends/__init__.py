@@ -1,15 +1,21 @@
-"""Windows-only Anti-AFK input backends.
+"""Windows-only input and window backends.
 
-Linux backends are intentionally not imported here. Importing them from this
-package caused PyInstaller/Windows startup to load xdotool/ydotool modules,
-which do not belong in the Windows build.
+Linux automation modules are intentionally not imported here. The Windows
+package uses native user32 APIs for window discovery, background Win32
+messages, and SendInput fallback.
 """
 
 from .base import InputBackend, InputBackendError
-from .windows import WindowsInputBackend
+from .windows import (
+    WindowsInputBackend,
+    WindowsWindowBackend,
+    WindowInfo,
+)
 
 __all__ = [
     "InputBackend",
     "InputBackendError",
     "WindowsInputBackend",
+    "WindowsWindowBackend",
+    "WindowInfo",
 ]
