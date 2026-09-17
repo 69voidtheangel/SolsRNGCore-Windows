@@ -1,14 +1,16 @@
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules
 
-ROOT = Path(__file__).resolve().parent
+# PyInstaller executes spec files without a normal __file__ global on the
+# Windows runner. The workflow invokes PyInstaller from the project root.
+ROOT = Path.cwd().resolve()
 SRC = ROOT / "src"
 ASSETS = ROOT / "assets"
 LIBRARY = ROOT / "library"
 
 hiddenimports = collect_submodules("solsrng_core")
 
-# Keep this a real Windows build: Linux-only automation/session modules are excluded.
+# Windows build only: do not package Linux automation/session modules.
 excludes = [
     "solsrng_core.platform.linux",
     "solsrng_core.antiafk.backends.xdotool",
