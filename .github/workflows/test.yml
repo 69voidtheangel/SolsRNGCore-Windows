@@ -1,4 +1,4 @@
-name: Windows source tests
+name: Windows repository validation
 
 on:
   push:
@@ -7,24 +7,27 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  validate:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install dependencies
+      - name: Validate AHK 1.1 bridge
         shell: pwsh
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-      - name: Compile Python sources
+          $ahk = Get-Content -Raw ahk/SolsRNGCore-Windows.ahk
+          if ($ahk -match '#Requires AutoHotkey v2') { throw 'AHK v2 directive found.' }
+          foreach ($needle in @('SendMode,', 'SetKeyDelay,', 'SetMouseDelay,', 'IniRead,', 'Hotkey,', 'RELOAD_SETTINGS', 'EMERGENCY_STOP')) {
+            if ($ahk -notmatch [regex]::Escape($needle)) { throw "Missing AHK feature: $needle" }
+          }
+      - name: Validate version metadata
         shell: pwsh
         run: |
-          python -m compileall -q src main.py
-      - name: Run tests
+          if ((Get-Content -Raw VERSION.txt).Trim() -notmatch '^0.6.0') { throw 'Version metadata mismatch.' }
+          if ((Get-Content -Raw VERSION.txt) -notmatch 'AHK=1.1') { throw 'AHK version metadata mismatch.' }
+          if ((Get-Content -Raw SOURCE_SNAPSHOT.md) -notmatch 'b390ea1d4d1ef13677e09aa316633ab52c319e89857c203398a6499f4e380aca') { throw 'Snapshot hash mismatch.' }
+      - name: Validate required release docs
         shell: pwsh
-        env:
-          PYTHONPATH: src
-        run: python -m pytest -q
+        run: |
+          foreach ($path in @('README.md','CHANGELOG.md','ENDSOL_FEATURES.md','docs/AHK.md','docs/SIMULATOR.md','V0.6.0_UPDATE.md')) {
+            if (!(Test-Path $path)) { throw "Missing release file: $path" }
+          }
