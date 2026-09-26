@@ -1,9 +1,10 @@
 # Changelog
 
-## 0.5.0
+## 0.6.0
 
-- Converted the bundled AutoHotkey bridge from v2 syntax to AutoHotkey 1.1 syntax, including the queue timer loop.
-- Added an independent EndSol-style feature layer for Memory Match, Quest Board, merchant automation, custom paths/recording, egg routes, potion/item actions, auto-pop buffs, multi-instance management, Sol's Book caching, and authenticated remote control.
-- Added feature coverage documentation and calibration guardrails.
-- Added automated tests for the new feature registry.
-- Final validation: 19 tests passed.
+- Added an AHK 1.1 settings panel and persisted INI configuration for the bridge.
+- Added configurable SendMode, key delay, press duration, mouse delay, mouse speed, queue polling, Roblox foreground guard, hotkeys, and emergency queue policy.
+- Added PING, RELOAD_SETTINGS, and EMERGENCY_STOP queue commands.
+- Added a deterministic Sol's RNG-style fishing UI simulator and a GUI button for the current resolution.
+- Added multi-resolution simulator coverage for 1280x720, 1280x800, 1920x1080, 2560x1440, and 3840x2160.
+- Local validation: 21 tests passed and Python compilation passed.
