@@ -16,12 +16,14 @@ This project implements the major publicly documented EndSol Macro feature areas
 | Auto-pop buffs | Implemented | Uses configured timed item actions. |
 | Multi-instance | Implemented | Roblox top-level window enumeration/focus. |
 | Sol's Book | Implemented | Cached MediaWiki search for the Sol's RNG wiki. |
-| Remote control | Implemented | Authenticated loopback HTTP; optional Discord.py control is available in the feature module. |
+| Remote control | Implemented | Authenticated loopback HTTP control. |
 | Screenshot events | Implemented | Biomes, aura, merchant, fishing, rejoin, manual/periodic. |
 | Live diagnostics | Implemented | Persistent logs and session reporting. |
 
-Feature-specific Roblox UI actions remain disabled until the required calibration exists. This is deliberate: the macro does not invent coordinates for an unverified resolution or UI state.
+## Windows bridge
 
-## AHK
+- AutoHotkey 1.1 bridge with GUI-controlled legacy Send/Delay/Mouse settings.
+- Configurable foreground guard and emergency queue handling.
+- Resolution-safe fishing simulator and regression tests.
 
-The Windows bridge targets AutoHotkey 1.1. It contains no AutoHotkey v2-only directives or function-call command syntax.
+Feature-specific Roblox UI actions remain disabled until the required calibration exists. This is deliberate: the macro does not invent coordinates for an unverified resolution.
