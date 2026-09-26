@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.4
+- Restyled the native AutoHotkey 1.1 control panel to match the SolsRNGCore dark-purple / magenta visual language.
+- Added branded header, accent line, dark input surfaces, telemetry accent text, and a Windows dark-title-bar hint where supported.
+- Kept the full v0.6.3 feature/control surface intact.
+
+
 ## 0.6.2
 - Fixed the native AHK 1.1 GUI startup error caused by GUI control variables being local inside a function.
 - Declared all GUI control variables global so the `.ahk` script opens normally in AutoHotkey 1.1.
