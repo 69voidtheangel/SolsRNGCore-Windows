@@ -27,3 +27,6 @@ Supported commands: PRESS, KEYDOWN, KEYUP, CLICK, MOVE, TYPE, SLEEP, RUN, PING, 
 ## Safety behavior
 
 With foreground protection enabled, the bridge sends game input only while a matching Roblox window is active. The emergency hotkey can stop the bridge and clear pending queue files.
+
+## Native AHK control panel
+The `ahk/SolsRNGCore-Windows.ahk` file now includes its own AutoHotkey 1.1 GUI. It can be run directly from AutoHotkey and provides runtime controls, hotkey configuration, input timing settings, start/stop/emergency actions, and a bridge test. The GUI and Python application use the same `%LOCALAPPDATA%\\SolsRNGCore-Windows\\ahk_settings.ini` and `ahk_queue` directory.
