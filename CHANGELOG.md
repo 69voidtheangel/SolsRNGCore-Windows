@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.1
+- Added a native AutoHotkey 1.1 control panel to the `.ahk` script.
+- The AHK script can now be launched directly in AutoHotkey without relying on the Python GUI.
+- AHK GUI, tray menu, hotkeys, settings INI, command queue, and Python bridge share the same state.
+
+
 ## 0.6.0
 
 - Added an AHK 1.1 settings panel and persisted INI configuration for the bridge.
