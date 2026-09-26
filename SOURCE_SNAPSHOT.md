@@ -1,11 +1,12 @@
 # Source snapshot
 
-The v0.5.0 source snapshot used for this repository update is the matching SolsRNGCore-Windows-Pixel-v0.5.0.zip artifact.
+The v0.5.0 source snapshot is distributed as the matching SolsRNGCore-Windows-Pixel-v0.5.0.zip bundle.
 
-The snapshot was tested before publishing:
-- 18 automated tests passed.
+Validation performed on the source snapshot:
+- 19 automated tests passed.
 - Python source compiled successfully.
-- The GUI was not executed in this Linux build container because the Windows/PySide6 desktop stack is not available here.
+- AHK 1.1 compatibility was checked against the legacy command-syntax model; direct AHK execution is still a Windows-side test.
+- The GUI was not executed in the Linux build container because the Windows/PySide6 desktop stack is not available there.
 
 SHA-256:
-1e57f4178190bfb840542bd3e1e08aeece1b758bc5208faae12bd66530090340
+8a058e89ee916c80d780962e0463c73c29f672bc295c940e4af47a48b511b972
