@@ -11,7 +11,7 @@ SetMouseDelay, -1
 SetDefaultMouseSpeed, 0
 
 ; SolsRNGCore-Windows input bridge
-; AutoHotkey 1.1-compatible. The Python side writes one .cmd file per action.
+; AutoHotkey 1.1-compatible. Python writes one .cmd file per action.
 
 try
 {
@@ -23,8 +23,8 @@ ENV_LOCALAPPDATA := A_LocalAppData
 if (!ENV_LOCALAPPDATA)
     EnvGet, ENV_LOCALAPPDATA, LOCALAPPDATA
 
-QUEUE_DIR := ENV_LOCALAPPDATA . "\\SolsRNGCore-Windows\\ahk_queue"
-STATE_FILE := QUEUE_DIR . "\\state.txt"
+QUEUE_DIR := ENV_LOCALAPPDATA . "\SolsRNGCore-Windows\ahk_queue"
+STATE_FILE := QUEUE_DIR . "\state.txt"
 RUNNING := true
 
 if !FileExist(QUEUE_DIR)
@@ -56,7 +56,7 @@ EmergencyStop()
 {
     global RUNNING, QUEUE_DIR
     RUNNING := false
-    Loop, Files, % QUEUE_DIR . "\\*.cmd", F
+    Loop, Files, % QUEUE_DIR . "\*.cmd", F
     {
         FileDelete, % A_LoopFileFullPath
     }
@@ -71,24 +71,22 @@ WriteState(value)
 }
 
 PollQueue:
-{
-    global QUEUE_DIR
     if !FileExist(QUEUE_DIR)
         FileCreateDir, %QUEUE_DIR%
 
-    Loop, Files, % QUEUE_DIR . "\\*.cmd", F
+    Loop, Files, % QUEUE_DIR . "\*.cmd", F
     {
         path := A_LoopFileFullPath
         command := ""
         FileRead, command, %path%
         if (ErrorLevel)
             continue
+
         FileDelete, %path%
         command := Trim(command, " `t`r`n")
         if (command != "")
             ExecuteCommand(command)
     }
-}
 return
 
 ExecuteCommand(command)
@@ -101,6 +99,7 @@ ExecuteCommand(command)
 
     op := parts[1]
 
+    ; RUN is allowed while stopped so Python can restart the bridge.
     if (op = "RUN")
     {
         value := (parts.MaxIndex() >= 2) ? parts[2] : "0"
