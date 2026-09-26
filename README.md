@@ -1,8 +1,8 @@
-# SolsRNGCore-Windows • Pixel Core v0.6.1
+# SolsRNGCore-Windows • Pixel Core v0.6.2
 
 Windows-first Sol's RNG automation core focused on pixel detection, resolution-aware calibration, pixel-only fishing, an AutoHotkey 1.1 bridge, and an independent EndSol-style feature layer.
 
-## v0.6.1
+## v0.6.2
 
 - AHK 1.1 Settings mirrors SendMode, key delay, press duration, mouse delay, mouse speed, queue polling, hotkeys, Roblox foreground protection, and emergency queue clearing.
 - Settings are written to the local ahk_settings.ini file and reloaded without editing the script.
