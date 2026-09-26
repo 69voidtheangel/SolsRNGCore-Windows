@@ -33,3 +33,6 @@ The `ahk/SolsRNGCore-Windows.ahk` file now includes its own AutoHotkey 1.1 GUI. 
 
 ## v0.6.2 fix
 The native GUI control variables are explicitly global for AutoHotkey 1.1 function scope, preventing the startup error `A control's variable must be global or static`.
+
+## v0.6.4 styling
+The native AHK 1.1 panel now uses SolsRNGCore branding: dark purple window colors, magenta accenting, a branded header, dark input surfaces, and accented runtime telemetry. The underlying controls and Python action queue remain unchanged.
