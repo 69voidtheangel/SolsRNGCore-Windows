@@ -1,12 +1,13 @@
 # Source snapshot
 
-The v0.5.0 source snapshot is distributed as the matching SolsRNGCore-Windows-Pixel-v0.5.0.zip bundle.
+The v0.6.0 source bundle is the matching SolsRNGCore-Windows-Pixel-v0.6.0.zip artifact.
 
-Validation performed on the source snapshot:
-- 19 automated tests passed.
+Validation performed:
+- 21 automated tests passed.
 - Python source compiled successfully.
-- AHK 1.1 compatibility was checked against the legacy command-syntax model; direct AHK execution is still a Windows-side test.
-- The GUI was not executed in the Linux build container because the Windows/PySide6 desktop stack is not available there.
+- The AHK bridge is written for AutoHotkey 1.1 and uses the legacy command syntax.
+- The built-in simulator covers 1280x720, 1280x800, 1920x1080, 2560x1440, and 3840x2160.
+- Direct AHK execution and real Roblox UI execution still require a Windows machine; this environment cannot execute the Windows desktop stack.
 
-SHA-256:
-8a058e89ee916c80d780962e0463c73c29f672bc295c940e4af47a48b511b972
+ZIP SHA-256:
+b390ea1d4d1ef13677e09aa316633ab52c319e89857c203398a6499f4e380aca
