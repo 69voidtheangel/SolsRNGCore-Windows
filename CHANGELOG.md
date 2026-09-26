@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2
+- Fixed the native AHK 1.1 GUI startup error caused by GUI control variables being local inside a function.
+- Declared all GUI control variables global so the `.ahk` script opens normally in AutoHotkey 1.1.
+- Re-ran the Python test suite: 21 passed.
+
+
 ## 0.6.1
 - Added a native AutoHotkey 1.1 control panel to the `.ahk` script.
 - The AHK script can now be launched directly in AutoHotkey without relying on the Python GUI.
