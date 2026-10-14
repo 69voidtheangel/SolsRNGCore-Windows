@@ -1,0 +1,32 @@
+name: Build XClicker Windows EXE
+
+on:
+  push:
+    paths:
+      - "tools/xclicker_windows/**"
+      - ".github/workflows/xclicker-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build standalone EXE
+        run: |
+          python -m pip install --upgrade pyinstaller
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name XClicker tools/xclicker_windows/xclicker_windows.py
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: XClicker-Windows-EXE
+          path: dist/XClicker.exe
+          if-no-files-found: error
